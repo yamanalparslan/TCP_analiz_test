@@ -1,9 +1,23 @@
 import sqlite3
+import os
 from datetime import datetime
 
-DB_NAME = "solar_log.db"
+# --- VERİTABANI YOL AYARLARI ---
+# Hata Düzeltme: Dosyanın 'data' klasörü içinde oluşmasını garanti ediyoruz.
+
+# Docker içinde miyiz kontrolü (/app/data genellikle Docker volume yoludur)
+if os.path.exists("/app/data"):
+    DB_NAME = "/app/data/solar_log.db"
+else:
+    # Yerel bilgisayarda test ediliyorsa 'data' klasörü yoksa oluştur
+    if not os.path.exists("data"):
+        os.makedirs("data")
+    DB_NAME = os.path.join("data", "solar_log.db")
 
 def init_db():
+    # Debug için yol bilgisini yazdıralım
+    print(f"📂 Veritabanı Bağlanıyor: {DB_NAME}")
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     

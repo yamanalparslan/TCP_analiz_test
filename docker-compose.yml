@@ -1,26 +1,26 @@
 version: '3.8'
 
 services:
-  # VERİ TOPLAYICI (Arka Planda Sürekli Çalışır)
+  # VERİ TOPLAYICI (Yazan Servis)
   solar-collector:
     container_name: solar_collector
     build: .
     entrypoint: ["python", "collector.py"]
     volumes:
-      - ./solar_log.db:/app/solar_log.db
+      - ./data:/app/data  # <--- BURASI KRİTİK: Dışarıdaki 'data' klasörünü içeriye bağlıyoruz
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
 
-  # ARAYÜZ (Sadece İzleme Yapar)
+  # ARAYÜZ (Okuyan Servis)
   solar-monitor:
     container_name: solar_monitor_pro
     build: .
     ports:
       - "8501:8501"
     volumes:
-      - ./solar_log.db:/app/solar_log.db
+      - ./data:/app/data  # <--- BURASI DA AYNI OLMALI: Panel de aynı klasörü okumalı
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     depends_on:
