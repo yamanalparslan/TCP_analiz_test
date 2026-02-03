@@ -1,6 +1,7 @@
 import time
 import logging
 from pymodbus.client import ModbusTcpClient
+from datetime import datetime
 import veritabani
 
 def load_config():
@@ -16,6 +17,7 @@ def load_config():
         'volt_scale': float(ayarlar.get('volt_scale', 0.1)),
         'akim_scale': float(ayarlar.get('akim_scale', 0.1)),
         'isi_scale': float(ayarlar.get('isi_scale', 1.0)),
+        'veri_saklama_gun': int(ayarlar.get('veri_saklama_gun', 365)),
         'alarm_registers': [
             {'addr': 189, 'key': 'hata_kodu', 'count': 2},
             {'addr': 193, 'key': 'hata_kodu_193', 'count': 1}
@@ -60,6 +62,25 @@ def read_device(client, slave_id, config):
         client.close()
         return None
 
+def otomatik_veri_temizle(config):
+    """
+    Ayarlara göre eski verileri otomatik temizle
+    0 = Sınırsız saklama (temizleme yapma)
+    """
+    saklama_gun = config.get('veri_saklama_gun', 365)
+    
+    if saklama_gun == 0:
+        return 0  # Sınırsız saklama - temizleme yapma
+    
+    try:
+        silinen = veritabani.eski_verileri_temizle(saklama_gun)
+        if silinen > 0:
+            print(f"\n🧹 Otomatik Temizlik: {silinen} kayıt silindi ({saklama_gun} günden eski)")
+        return silinen
+    except Exception as e:
+        print(f"\n⚠️ Otomatik temizlik hatası: {e}")
+        return 0
+
 def start_collector():
     veritabani.init_db()
     print("=" * 60)
@@ -73,13 +94,25 @@ def start_collector():
     print(f"⏱️  Refresh: {config['refresh_rate']}s")
     print(f"🔢 Slave IDs: {config['slave_ids']}")
     print(f"📊 Çarpanlar: Güç={config['guc_scale']}, V={config['volt_scale']}, A={config['akim_scale']}, °C={config['isi_scale']}")
+    
+    if config['veri_saklama_gun'] == 0:
+        print(f"♾️  Veri Saklama: Sınırsız")
+    else:
+        print(f"🗄️  Veri Saklama: {config['veri_saklama_gun']} Gün")
+    
     print("=" * 60)
     
     ayar_kontrol_sayaci = 0
+    temizlik_sayaci = 0
+    TEMIZLIK_PERIYODU = 1800  # Her 30 dakikada bir temizlik yap (1800 döngü x 2sn = 3600sn = 60dk)
+    
+    # İlk başlangıçta bir kere temizlik yap
+    otomatik_veri_temizle(config)
     
     while True:
         start_time = time.time()
         
+        # Her 10 döngüde bir ayarları kontrol et
         ayar_kontrol_sayaci += 1
         if ayar_kontrol_sayaci >= 10:
             yeni_config = load_config()
@@ -92,6 +125,13 @@ def start_collector():
             ayar_kontrol_sayaci = 0
             print(f"\n✅ Ayarlar güncellendi (Refresh: {config['refresh_rate']}s)")
         
+        # Otomatik veri temizleme (her 30 dakikada)
+        temizlik_sayaci += 1
+        if temizlik_sayaci >= TEMIZLIK_PERIYODU:
+            otomatik_veri_temizle(config)
+            temizlik_sayaci = 0
+        
+        # Veri toplama
         for dev_id in config['slave_ids']:
             print(f"📡 ID {dev_id}...", end=" ")
             time.sleep(0.5)

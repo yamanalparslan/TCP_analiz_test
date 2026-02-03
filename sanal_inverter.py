@@ -3,7 +3,6 @@ import logging
 import math
 import random
 from datetime import datetime
-from pymodbus.server import StartAsyncTcpServer
 from pymodbus.datastore import ModbusSequentialDataBlock
 from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
 

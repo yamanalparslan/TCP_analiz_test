@@ -1,10 +1,8 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- VERİTABANI YOL AYARLARI ---
-# Hata Düzeltme: Dosyanın 'data' klasörü içinde oluşmasını garanti ediyoruz.
-
 # Docker içinde miyiz kontrolü (/app/data genellikle Docker volume yoludur)
 if os.path.exists("/app/data"):
     DB_NAME = "/app/data/solar_log.db"
@@ -34,6 +32,17 @@ def init_db():
             hata_kodu INTEGER DEFAULT 0,
             hata_kodu_193 INTEGER DEFAULT 0
         )
+    """)
+    
+    # Index oluştur (sorgu performansı için)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_slave_zaman 
+        ON olcumler(slave_id, zaman DESC)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_zaman 
+        ON olcumler(zaman DESC)
     """)
 
     # 2. Ayarlar Tablosu
@@ -69,7 +78,8 @@ def init_db():
         ('isi_addr', '73', 'Sıcaklık register adresi'),
         ('target_ip', '10.35.14.10', 'Modbus IP adresi'),
         ('target_port', '502', 'Modbus Port'),
-        ('slave_ids', '1,2,3', 'İnverter ID listesi')
+        ('slave_ids', '1,2,3', 'İnverter ID listesi'),
+        ('veri_saklama_gun', '365', 'Veri saklama süresi (gün) - 0: Sınırsız')
     ]
     
     for anahtar, deger, aciklama in varsayilan_ayarlar:
@@ -140,7 +150,8 @@ def tum_ayarlari_oku():
             'refresh_rate': '2', 'guc_scale': '1.0', 'volt_scale': '0.1',
             'akim_scale': '0.1', 'isi_scale': '1.0', 'guc_addr': '70',
             'volt_addr': '71', 'akim_addr': '72', 'isi_addr': '73',
-            'target_ip': '10.35.14.10', 'target_port': '502', 'slave_ids': '1,2,3'
+            'target_ip': '10.35.14.10', 'target_port': '502', 'slave_ids': '1,2,3',
+            'veri_saklama_gun': '365'
         }
 
 def veri_ekle(slave_id, data):
@@ -188,5 +199,223 @@ def db_temizle():
         return True
     except:
         return False
+    finally:
+        conn.close()
+
+# ==================== YENİ FONKSİYONLAR: GEÇMİŞ VERİ YÖNETİMİ ====================
+
+def eski_verileri_temizle(gun_sayisi=None):
+    """
+    Belirtilen günden eski verileri sil
+    gun_sayisi None ise ayarlardan oku
+    gun_sayisi 0 ise sınırsız saklama (silme yapma)
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    try:
+        if gun_sayisi is None:
+            gun_sayisi = int(ayar_oku('veri_saklama_gun', '365'))
+        
+        # 0 = sınırsız saklama
+        if gun_sayisi == 0:
+            return 0
+        
+        tarih = datetime.now() - timedelta(days=gun_sayisi)
+        tarih_str = tarih.strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute('DELETE FROM olcumler WHERE zaman < ?', (tarih_str,))
+        silinen = cursor.rowcount
+        conn.commit()
+        
+        if silinen > 0:
+            # VACUUM ile DB boyutunu küçült
+            cursor.execute('VACUUM')
+            print(f"🧹 {silinen} eski kayıt temizlendi ({gun_sayisi} günden eski)")
+        
+        return silinen
+    except Exception as e:
+        print(f"⚠️ Eski veri temizleme hatası: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def veritabani_istatistikleri():
+    """Veritabanı boyutu ve kayıt sayısı hakkında bilgi"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    try:
+        # Toplam kayıt sayısı
+        cursor.execute('SELECT COUNT(*) FROM olcumler')
+        toplam_kayit = cursor.fetchone()[0]
+        
+        # İlk ve son kayıt tarihleri
+        cursor.execute('SELECT MIN(zaman), MAX(zaman) FROM olcumler')
+        tarih_araligi = cursor.fetchone()
+        
+        # Cihaz başına kayıt sayısı
+        cursor.execute('''
+            SELECT slave_id, COUNT(*) as kayit_sayisi, 
+                   MIN(zaman) as ilk_kayit, 
+                   MAX(zaman) as son_kayit
+            FROM olcumler 
+            GROUP BY slave_id 
+            ORDER BY slave_id
+        ''')
+        cihaz_istatistik = cursor.fetchall()
+        
+        # Veritabanı dosya boyutu
+        db_boyut = os.path.getsize(DB_NAME) / (1024 * 1024)  # MB cinsinden
+        
+        return {
+            'toplam_kayit': toplam_kayit,
+            'ilk_kayit': tarih_araligi[0],
+            'son_kayit': tarih_araligi[1],
+            'cihaz_istatistik': cihaz_istatistik,
+            'db_boyut_mb': round(db_boyut, 2)
+        }
+    except Exception as e:
+        print(f"⚠️ İstatistik hatası: {e}")
+        return None
+    finally:
+        conn.close()
+
+def tarih_araliginda_ortalamalar(baslangic, bitis, slave_id=None):
+    """Belirtilen tarih aralığındaki ortalama değerler"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    baslangic_str = f"{baslangic} 00:00:00"
+    bitis_str = f"{bitis} 23:59:59"
+    
+    try:
+        if slave_id:
+            cursor.execute('''
+                SELECT 
+                    AVG(guc) as ort_guc,
+                    AVG(voltaj) as ort_voltaj,
+                    AVG(akim) as ort_akim,
+                    AVG(sicaklik) as ort_sicaklik,
+                    MAX(guc) as max_guc,
+                    MIN(guc) as min_guc,
+                    COUNT(*) as toplam_olcum
+                FROM olcumler
+                WHERE zaman BETWEEN ? AND ? AND slave_id = ?
+            ''', (baslangic_str, bitis_str, slave_id))
+        else:
+            cursor.execute('''
+                SELECT 
+                    AVG(guc) as ort_guc,
+                    AVG(voltaj) as ort_voltaj,
+                    AVG(akim) as ort_akim,
+                    AVG(sicaklik) as ort_sicaklik,
+                    MAX(guc) as max_guc,
+                    MIN(guc) as min_guc,
+                    COUNT(*) as toplam_olcum
+                FROM olcumler
+                WHERE zaman BETWEEN ? AND ?
+            ''', (baslangic_str, bitis_str))
+        
+        sonuc = cursor.fetchone()
+        return {
+            'ort_guc': sonuc[0] or 0,
+            'ort_voltaj': sonuc[1] or 0,
+            'ort_akim': sonuc[2] or 0,
+            'ort_sicaklik': sonuc[3] or 0,
+            'max_guc': sonuc[4] or 0,
+            'min_guc': sonuc[5] or 0,
+            'toplam_olcum': sonuc[6] or 0
+        }
+    except Exception as e:
+        print(f"⚠️ Ortalama hesaplama hatası: {e}")
+        return None
+    finally:
+        conn.close()
+
+def gunluk_uretim_hesapla(tarih, slave_id=None):
+    """Belirli bir gün için toplam enerji üretimi tahmini (Wh)"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    baslangic = f"{tarih} 00:00:00"
+    bitis = f"{tarih} 23:59:59"
+    
+    try:
+        if slave_id:
+            cursor.execute('''
+                SELECT AVG(guc) as ort_guc, COUNT(*) as olcum_sayisi
+                FROM olcumler
+                WHERE zaman BETWEEN ? AND ? AND slave_id = ?
+            ''', (baslangic, bitis, slave_id))
+        else:
+            cursor.execute('''
+                SELECT AVG(guc) as ort_guc, COUNT(*) as olcum_sayisi
+                FROM olcumler
+                WHERE zaman BETWEEN ? AND ?
+            ''', (baslangic, bitis))
+        
+        sonuc = cursor.fetchone()
+        ort_guc = sonuc[0] or 0
+        olcum_sayisi = sonuc[1] or 0
+        
+        # Varsayılan veri toplama aralığı (saniye)
+        ayarlar = tum_ayarlari_oku()
+        refresh_rate = float(ayarlar.get('refresh_rate', 2))
+        
+        # Toplam süre (saat)
+        toplam_saat = (olcum_sayisi * refresh_rate) / 3600
+        
+        # Tahmini üretim (Watt-saat)
+        uretim_wh = ort_guc * toplam_saat
+        
+        return {
+            'uretim_wh': round(uretim_wh, 2),
+            'uretim_kwh': round(uretim_wh / 1000, 3),
+            'ort_guc': round(ort_guc, 2),
+            'calisma_suresi_saat': round(toplam_saat, 2)
+        }
+    except Exception as e:
+        print(f"⚠️ Üretim hesaplama hatası: {e}")
+        return None
+    finally:
+        conn.close()
+
+def hata_sayilarini_getir(baslangic, bitis, slave_id=None):
+    """Belirtilen tarih aralığındaki hata kayıtlarını getir"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    baslangic_str = f"{baslangic} 00:00:00"
+    bitis_str = f"{bitis} 23:59:59"
+    
+    try:
+        if slave_id:
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as toplam,
+                    SUM(CASE WHEN hata_kodu > 0 THEN 1 ELSE 0 END) as hata_189,
+                    SUM(CASE WHEN hata_kodu_193 > 0 THEN 1 ELSE 0 END) as hata_193
+                FROM olcumler
+                WHERE zaman BETWEEN ? AND ? AND slave_id = ?
+            ''', (baslangic_str, bitis_str, slave_id))
+        else:
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as toplam,
+                    SUM(CASE WHEN hata_kodu > 0 THEN 1 ELSE 0 END) as hata_189,
+                    SUM(CASE WHEN hata_kodu_193 > 0 THEN 1 ELSE 0 END) as hata_193
+                FROM olcumler
+                WHERE zaman BETWEEN ? AND ?
+            ''', (baslangic_str, bitis_str))
+        
+        sonuc = cursor.fetchone()
+        return {
+            'toplam_olcum': sonuc[0] or 0,
+            'hata_189_sayisi': sonuc[1] or 0,
+            'hata_193_sayisi': sonuc[2] or 0
+        }
+    except Exception as e:
+        print(f"⚠️ Hata sayısı getirme hatası: {e}")
+        return None
     finally:
         conn.close()
