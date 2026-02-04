@@ -7,7 +7,8 @@ services:
     build: .
     entrypoint: ["python", "collector.py"]
     volumes:
-      - ./data:/app/data  # <--- BURASI KRİTİK: Dışarıdaki 'data' klasörünü içeriye bağlıyoruz
+      - .:/app           # <--- BU SATIRI EKLEYİN (Kodları senkronize eder)
+      - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     environment:
