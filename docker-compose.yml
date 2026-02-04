@@ -1,27 +1,28 @@
 version: '3.8'
 
 services:
-  # VERİ TOPLAYICI (Yazan Servis)
+  # VERİ TOPLAYICI (Bu serviste kod senkronizasyonu kalsa da olur, zararı yok)
   solar-collector:
     container_name: solar_collector
     build: .
     entrypoint: ["python", "collector.py"]
     volumes:
-      - .:/app           # <--- BU SATIRI EKLEYİN (Kodları senkronize eder)
+      - .:/app
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
 
-  # ARAYÜZ (Okuyan Servis)
+  # ARAYÜZ (Streamlit BURADA çalışıyor, asıl buraya eklemelisiniz)
   solar-monitor:
     container_name: solar_monitor_pro
     build: .
     ports:
       - "8501:8501"
     volumes:
-      - ./data:/app/data  # <--- BURASI DA AYNI OLMALI: Panel de aynı klasörü okumalı
+      - .:/app            # <--- KRİTİK HAMLE: BU SATIRI BURAYA EKLEYİN
+      - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     depends_on:
