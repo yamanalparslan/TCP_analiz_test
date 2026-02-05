@@ -5,6 +5,7 @@ import random
 from datetime import datetime
 from pymodbus.datastore import ModbusSequentialDataBlock
 from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
+from pymodbus.server.async_io import StartAsyncTcpServer
 
 # --- AYARLAR ---
 TEST_IP = "127.0.0.1"

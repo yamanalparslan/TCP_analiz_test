@@ -133,12 +133,33 @@ with st.sidebar:
     st.divider()
     
     st.header("⏳ Zamanlayıcı")
-    refresh_rate = st.number_input(
-        "Veri Çekme Sıklığı (Saniye)", 
-        value=float(mevcut_ayarlar.get('refresh_rate', 2)), 
-        min_value=1.0, 
-        step=0.5
+    
+    # Slider için seçenekler (dakika cinsinden gösterim)
+    interval_options = {
+        "1 dakika": 60,
+        "10 dakika": 600,
+        "30 dakika": 1800,
+        "1 saat": 3600
+    }
+    
+    # Mevcut değeri bul
+    current_refresh = float(mevcut_ayarlar.get('refresh_rate', 60))
+    # En yakın seçeneği bul
+    current_label = "1 dakika"
+    for label, value in interval_options.items():
+        if value == current_refresh:
+            current_label = label
+            break
+    
+    # Slider ile seçim
+    selected_interval = st.select_slider(
+        "Veri Toplama Sıklığı",
+        options=list(interval_options.keys()),
+        value=current_label
     )
+    
+    refresh_rate = interval_options[selected_interval]
+    st.info(f"⏱️ Seçilen: {selected_interval} ({refresh_rate} saniye)")
     
     st.markdown("---")
     st.header("🗺️ Adres Haritası")
