@@ -204,7 +204,7 @@ with st.sidebar:
         c_akim_adr = st.number_input("Akım Adresi", value=int(mevcut_ayarlar.get('akim_addr', 72)))
         c_akim_sc = st.number_input("Akım Çarpan", value=float(mevcut_ayarlar.get('akim_scale', 0.1)), step=0.1, format="%.2f")
         
-        c_isi_adr = st.number_input("Isı Adresi", value=int(mevcut_ayarlar.get('isi_addr', 73)))
+        c_isi_adr = st.number_input("Isı Adresi", value=int(mevcut_ayarlar.get('isi_addr', 74)))
         c_isi_sc = st.number_input("Isı Çarpan", value=float(mevcut_ayarlar.get('isi_scale', 1.0)), step=0.1, format="%.2f")
     
     config = {
