@@ -67,7 +67,7 @@ def read_device_with_retry(client, slave_id, config, max_retries=3):
                     return None, last_error
             
             # 1. Standart Veriler
-            r_guc = client.read_holding_registers(config['guc_addr'], 1, unit=slave_id)
+            r_guc = client.read_holding_registers(config['guc_addr'], 1, slave=slave_id)
             if r_guc.isError():
                 last_error = f"Güç okunamadı (ID:{slave_id})"
                 if attempt < max_retries - 1:
@@ -76,19 +76,19 @@ def read_device_with_retry(client, slave_id, config, max_retries=3):
                 return None, last_error
             val_guc = r_guc.registers[0] * config['guc_scale']
 
-            r_volt = client.read_holding_registers(config['volt_addr'], 1, unit=slave_id)
+            r_volt = client.read_holding_registers(config['volt_addr'], 1, slave=slave_id)
             val_volt = 0 if r_volt.isError() else r_volt.registers[0] * config['volt_scale']
 
-            r_akim = client.read_holding_registers(config['akim_addr'], 1, unit=slave_id)
+            r_akim = client.read_holding_registers(config['akim_addr'], 1, slave=slave_id)
             val_akim = 0 if r_akim.isError() else r_akim.registers[0] * config['akim_scale']
 
-            r_isi = client.read_holding_registers(config['isi_addr'], 1, unit=slave_id)
+            r_isi = client.read_holding_registers(config['isi_addr'], 1, slave=slave_id)
             val_isi = 0 if r_isi.isError() else r_isi.registers[0] * config['isi_scale']
 
             # 2. Hata Kodları
             hata_kodu_189 = 0
             try:
-                r_hata = client.read_holding_registers(189, 2, unit=slave_id)
+                r_hata = client.read_holding_registers(189, 2, slave=slave_id)
                 if not r_hata.isError():
                     hata_kodu_189 = (r_hata.registers[0] << 16) | r_hata.registers[1]
             except:
@@ -97,7 +97,7 @@ def read_device_with_retry(client, slave_id, config, max_retries=3):
             hata_kodu_193 = 0
             try:
                 time.sleep(0.02) 
-                r_hata2 = client.read_holding_registers(193, 2, unit=slave_id)
+                r_hata2 = client.read_holding_registers(193, 2, slave=slave_id)
                 if not r_hata2.isError():
                     hata_kodu_193 = (r_hata2.registers[0] << 16) | r_hata2.registers[1]
             except:
