@@ -3,15 +3,24 @@ import logging
 from pymodbus.client import ModbusTcpClient
 from datetime import datetime
 import veritabani
+import utils
 
 def load_config():
     """Veritabanından ayarları yükle"""
     ayarlar = veritabani.tum_ayarlari_oku()
+    
+    # ID parsing için utils kullan (tire desteği dahil)
+    slave_ids_raw = ayarlar.get('slave_ids', '1,2,3')
+    slave_ids, parse_errors = utils.parse_id_list(slave_ids_raw)
+    
+    if parse_errors:
+        logging.warning(f"ID parsing hataları: {', '.join(parse_errors)}")
+    
     return {
         'target_ip': ayarlar.get('target_ip', '10.35.14.10'),
         'target_port': int(ayarlar.get('target_port', 502)),
         'refresh_rate': float(ayarlar.get('refresh_rate', 2)),
-        'slave_ids': [int(x.strip()) for x in ayarlar.get('slave_ids', '1,2,3').split(',')],
+        'slave_ids': slave_ids,
         'start_addr': int(ayarlar.get('guc_addr', 70)),
         'guc_scale': float(ayarlar.get('guc_scale', 1.0)),
         'volt_scale': float(ayarlar.get('volt_scale', 0.1)),
@@ -30,7 +39,8 @@ def read_device(client, slave_id, config):
             client.connect()
             time.sleep(0.1)
         
-        rr = client.read_holding_registers(config['start_addr'], count=4, slave=slave_id)
+        # Pymodbus 3.x: unit parametresi kullan (slave yerine)
+        rr = client.read_holding_registers(address=config['start_addr'], count=4, unit=slave_id)
         if rr.isError(): 
             return None
 
@@ -44,7 +54,7 @@ def read_device(client, slave_id, config):
         for reg in config['alarm_registers']:
             try:
                 time.sleep(0.05)
-                r_hata = client.read_holding_registers(reg['addr'], count=reg.get('count', 2), slave=slave_id)
+                r_hata = client.read_holding_registers(address=reg['addr'], count=reg.get('count', 2), unit=slave_id)
                 if not r_hata.isError():
                     if reg.get('count', 2) == 2:
                         veriler[reg['key']] = (r_hata.registers[0] << 16) | r_hata.registers[1]
