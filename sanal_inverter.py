@@ -90,13 +90,29 @@ async def veri_guncelleyici(context):
         
         # Inverter hafizasina (Holding Register) yaz
         slave_id = 1
-        register_adresi = 0
         
         # Modbus'a yazilacak sayisal veriler (Son eleman string oldugu icin onu almiyoruz)
-        modbus_verisi = veriler[:5] 
+        modbus_verisi = veriler[:5]  # [voltaj, akim_x10, guc, toplam_uretim, sicaklik]
         
         store = context[slave_id]
-        store.setValues(3, register_adresi, modbus_verisi)
+        
+        # Panel ayarlarına uygun register adresleri:
+        # Register 70: Güç (W)
+        # Register 71: Voltaj (V)
+        # Register 72: Akım (A x10)
+        # Register 73: Toplam Üretim (Wh)
+        # Register 74: Sıcaklık (°C)
+        store.setValues(3, 70, [modbus_verisi[2]])  # Güç
+        store.setValues(3, 71, [modbus_verisi[0]])  # Voltaj
+        store.setValues(3, 72, [modbus_verisi[1]])  # Akım
+        store.setValues(3, 73, [modbus_verisi[3]])  # Toplam Üretim
+        store.setValues(3, 74, [modbus_verisi[4]])  # Sıcaklık
+        
+        # Hata register'ları (2 register'lık 32-bit değer)
+        # Register 189-190: Hata Kodu 1 (0 = hata yok)
+        # Register 193-194: Hata Kodu 2 (0 = hata yok)
+        store.setValues(3, 189, [0, 0])  # Hata yok
+        store.setValues(3, 193, [0, 0])  # Hata yok
         
         # Log basalim (Sanal saati de gösterelim)
         print(f"🕒 {veriler[5]} | ☀️  Guc: {veriler[2]} W | 🌡️  Isi: {veriler[4]} C | ⚡ {veriler[0]} V")
@@ -104,9 +120,9 @@ async def veri_guncelleyici(context):
         await asyncio.sleep(1)
 
 async def sunucuyu_calistir():
-    # Hafiza olustur
+    # Hafiza olustur (200 register - hata kodları için yeterli)
     store = ModbusSlaveContext(
-        hr=ModbusSequentialDataBlock(0, [0]*100)
+        hr=ModbusSequentialDataBlock(0, [0]*200)
     )
     context = ModbusServerContext(slaves=store, single=True)
 

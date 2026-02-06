@@ -234,6 +234,30 @@ with st.sidebar:
         st.success("✅ Ayarlar kaydedildi! Collector 30 saniye içinde güncellenecek.")
         st.rerun()
 
+    # Yenileme süresi ayarı
+    st.markdown("---")
+    st.header("⏱️ Yenileme Ayarları")
+    
+    # Session state'te varsayılan değer
+    if 'refresh_interval' not in st.session_state:
+        st.session_state.refresh_interval = 30
+    
+    # Slider
+    refresh_interval = st.select_slider(
+        "Otomatik Yenileme Süresi",
+        options=[5, 10, 15, 30, 60, 120],
+        value=st.session_state.refresh_interval,
+        format_func=lambda x: f"{x} saniye"
+    )
+    
+    # Session state'i güncelle
+    st.session_state.refresh_interval = refresh_interval
+    
+    st.caption(f"Panel {refresh_interval} saniyede bir yenilenecek")
+    
+    st.markdown("---")
+    st.header("🎛️ Sistem Kontrolü")
+    
     if st.button("▶️ SİSTEMİ BAŞLAT"):
         st.session_state.monitoring = True
         st.rerun()
@@ -311,7 +335,7 @@ def ui_refresh():
 # --- ANA DÖNGÜ ---
 if st.session_state.monitoring:
     client = get_modbus_client(target_ip, target_port)
-    status_bar.success(f"✅ Sistem Aktif - Otomatik yenileme: 5 saniye")
+    status_bar.success(f"✅ Sistem Aktif - Otomatik yenileme: {st.session_state.refresh_interval} saniye")
     
     # Veri toplama
     for dev_id in target_ids:
@@ -324,8 +348,8 @@ if st.session_state.monitoring:
     # UI güncelleme
     ui_refresh()
     
-    # Otomatik yenileme (sonsuz döngü yerine Streamlit'in native mekanizması)
-    time.sleep(5)
+    # Otomatik yenileme (kullanıcının seçtiği süre)
+    time.sleep(st.session_state.refresh_interval)
     st.rerun()
 else:
     ui_refresh()
