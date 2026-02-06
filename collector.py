@@ -40,7 +40,7 @@ def read_device(client, slave_id, config):
             time.sleep(0.1)
         
         # Pymodbus 3.x: unit parametresi kullan (slave yerine)
-        rr = client.read_holding_registers(address=config['start_addr'], count=4, slave=slave_id)
+        rr = client.read_holding_registers(address=config['start_addr'], count=5, slave=slave_id)
         if rr.isError(): 
             return None
 
@@ -48,7 +48,7 @@ def read_device(client, slave_id, config):
             "guc": rr.registers[0] * config['guc_scale'],
             "voltaj": rr.registers[1] * config['volt_scale'],
             "akim": rr.registers[2] * config['akim_scale'],
-            "sicaklik": rr.registers[3] * config['isi_scale']
+            "sicaklik": rr.registers[4] * config['isi_scale']  # Index 4 = Register 74
         }
 
         for reg in config['alarm_registers']:
