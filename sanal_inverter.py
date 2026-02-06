@@ -3,9 +3,8 @@ import logging
 import math
 import random
 from datetime import datetime
-from pymodbus.datastore import ModbusSequentialDataBlock
-from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
-from pymodbus.server.async_io import StartAsyncTcpServer
+from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext, ModbusServerContext
+from pymodbus.server import StartAsyncTcpServer
 
 # --- AYARLAR ---
 TEST_IP = "127.0.0.1"
@@ -118,14 +117,12 @@ async def sunucuyu_calistir():
     # Arka plan gorevini baslat (Veri uretimi)
     task = asyncio.create_task(veri_guncelleyici(context))
     
-    # Serveri baslat
-    await StartAsyncTcpServer(context, address=(TEST_IP, TEST_PORT))
+    # Serveri baslat (Pymodbus 3.8.6 API)
+    await StartAsyncTcpServer(context=context, address=(TEST_IP, TEST_PORT))
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.ERROR)
     try:
-        if asyncio.get_event_loop_policy().__class__.__name__ == 'WindowsProactorEventLoopPolicy':
-             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(sunucuyu_calistir())
     except KeyboardInterrupt:
         print("\nKapatildi.")
