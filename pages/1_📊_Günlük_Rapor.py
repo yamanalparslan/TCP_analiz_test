@@ -7,6 +7,7 @@ import os
 # Üst dizindeki veritabani.py modülüne erişim sağla
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import veritabani
+import utils
 
 st.set_page_config(page_title="Günlük Raporlar", page_icon="📊", layout="wide")
 
@@ -16,8 +17,12 @@ st.markdown("Seçilen tarihe göre tüm cihazların üretim ve verimlilik özeti
 # Veritabanından mevcut cihaz listesini ve ayarları al
 ayarlar = veritabani.tum_ayarlari_oku()
 slave_ids_raw = ayarlar.get('slave_ids', '1,2,3')
-# ID listesini temizle ve listeye çevir
-slave_ids = [int(x.strip()) for x in slave_ids_raw.split(',') if x.strip().isdigit()]
+
+# ID listesini utils ile parse et (tire desteği dahil)
+slave_ids, parse_errors = utils.parse_id_list(slave_ids_raw)
+
+if parse_errors:
+    st.warning(f"⚠️ Bazı ID'ler parse edilemedi: {', '.join(parse_errors)}")
 
 # Raporlama Arayüzü
 col_date, col_empty = st.columns([1, 2])
@@ -67,7 +72,7 @@ if rapor_listesi:
     st.dataframe(df_rapor.set_index("Cihaz ID"), use_container_width=True)
     
     # CSV İndirme Seçeneği
-    csv = df_rapor.to_csv(index=False).encode('utf-8')
+    csv = df_rapor.to_csv(index=False).encode('utf-8-sig')  # BOM eklendi
     st.download_button(
         label="📥 Raporu CSV Olarak İndir",
         data=csv,
@@ -75,4 +80,28 @@ if rapor_listesi:
         mime="text/csv",
     )
 else:
-    st.warning(f"⚠️ {tarih_str} tarihinde herhangi bir veri kaydı bulunamadı.")
+    st.warning(f"⚠️ {tarih_str} tarihinde veri bulunamadı.")
+    
+    # Sistem durumu kontrolü
+    tum_veriler = veritabani.tum_cihazlarin_son_durumu()
+    
+    if not tum_veriler:
+        st.info("""
+        **Olası Nedenler:**
+        - 🔴 Sistem henüz başlatılmamış olabilir
+        - 🔴 Collector servisi çalışmıyor olabilir
+        - 🔴 Hiç veri toplanmamış
+        
+        **Öneriler:**
+        1. Ana sayfadan sistemi başlatın
+        2. Birkaç dakika bekleyin
+        3. Veritabanında veri olup olmadığını kontrol edin
+        """)
+    else:
+        st.info(f"""
+        **Sistem aktif** ama seçilen tarihte veri yok.
+        
+        - ✅ Toplam {len(tum_veriler)} cihaz sistemde kayıtlı
+        - 📅 Farklı bir tarih seçmeyi deneyin
+        - 🔍 Veya bugünün tarihini seçin
+        """)

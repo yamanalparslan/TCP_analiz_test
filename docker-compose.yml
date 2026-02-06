@@ -5,7 +5,8 @@ services:
   solar-collector:
     container_name: solar_collector
     build: .
-    entrypoint: ["python", "collector.py"]
+    network_mode: host # Host ağını kullan (Modbus cihazlarına erişim için)
+    entrypoint: [ "python", "collector.py" ]
     volumes:
       - .:/app
       - ./data:/app/data
@@ -19,9 +20,9 @@ services:
     container_name: solar_monitor_pro
     build: .
     ports:
-      - "8501:8501"
+      - "8501:8501" # macOS'ta host mode çalışmadığı için port mapping kullanıyoruz
     volumes:
-      - .:/app            # <--- KRİTİK HAMLE: BU SATIRI BURAYA EKLEYİN
+      - .:/app
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped

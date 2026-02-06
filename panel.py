@@ -3,7 +3,8 @@ import time
 import pandas as pd
 from datetime import datetime
 from pymodbus.client import ModbusTcpClient
-import veritabani 
+import veritabani
+import utils 
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -28,86 +29,112 @@ st.markdown("""
         font-size: 1rem; font-weight: 700; margin-bottom: 0px;
         padding: 5px 10px; border-radius: 5px 5px 0 0; display: inline-block; width: 100%;
     }
-    .save-success {
-        background-color: #1e4d2b;
-        color: #4ade80;
-        padding: 10px;
-        border-radius: 5px;
-        border-left: 4px solid #4ade80;
-        margin: 10px 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # --- YARDIMCI FONKSİYONLAR ---
-def parse_id_list(id_string):
-    ids = set()
-    parts = id_string.split(',')
-    for part in parts:
-        part = part.strip()
-        if '-' in part:
-            try:
-                start, end = map(int, part.split('-'))
-                for i in range(start, end + 1):
-                    ids.add(i)
-            except: pass
-        else:
-            try:
-                ids.add(int(part))
-            except: pass
-    return sorted(list(ids))
+# parse_id_list artık utils.py'de
 
 @st.cache_resource
 def get_modbus_client(ip, port):
-    return ModbusTcpClient(ip, port=port, timeout=1) 
+    return ModbusTcpClient(ip, port=port, timeout=2) 
 
-def read_device(client, slave_id, config):
-    try:
-        if not client.connected: client.connect()
+def read_device_with_retry(client, slave_id, config, max_retries=3):
+    """
+    Modbus cihazından veri okur, başarısız olursa retry yapar.
+    
+    Args:
+        client: Modbus client
+        slave_id: Cihaz ID'si
+        config: Adres konfigürasyonu
+        max_retries: Maksimum deneme sayısı
         
-        # 1. Standart Veriler
-        r_guc = client.read_holding_registers(config['guc_addr'], 1, slave=slave_id)
-        if r_guc.isError(): return None, "No Response"
-        val_guc = r_guc.registers[0] * config['guc_scale']
-
-        r_volt = client.read_holding_registers(config['volt_addr'], 1, slave=slave_id)
-        val_volt = 0 if r_volt.isError() else r_volt.registers[0] * config['volt_scale']
-
-        r_akim = client.read_holding_registers(config['akim_addr'], 1, slave=slave_id)
-        val_akim = 0 if r_akim.isError() else r_akim.registers[0] * config['akim_scale']
-
-        r_isi = client.read_holding_registers(config['isi_addr'], 1, slave=slave_id)
-        val_isi = 0 if r_isi.isError() else r_isi.registers[0] * config['isi_scale']
-
-        # 2. Hata Kodları
-        hata_kodu_189 = 0
+    Returns:
+        tuple: (data dict veya None, error message veya None)
+    """
+    last_error = None
+    
+    for attempt in range(max_retries):
         try:
-            r_hata = client.read_holding_registers(189, 2, slave=slave_id)
-            if not r_hata.isError():
-                hata_kodu_189 = (r_hata.registers[0] << 16) | r_hata.registers[1]
-        except: pass
+            # Bağlantı kontrolü
+            if not client.connected:
+                client.connect()
+                if not client.connected:
+                    last_error = "Bağlantı kurulamadı"
+                    if attempt < max_retries - 1:
+                        time.sleep(0.5)
+                        continue
+                    return None, last_error
+            
+            # 1. Standart Veriler
+            r_guc = client.read_holding_registers(config['guc_addr'], 1, slave=slave_id)
+            if r_guc.isError():
+                last_error = f"Güç okunamadı (ID:{slave_id})"
+                if attempt < max_retries - 1:
+                    time.sleep(0.3)
+                    continue
+                return None, last_error
+            val_guc = r_guc.registers[0] * config['guc_scale']
 
-        hata_kodu_193 = 0
-        try:
-            time.sleep(0.02) 
-            r_hata2 = client.read_holding_registers(193, 2, slave=slave_id)
-            if not r_hata2.isError():
-                hata_kodu_193 = (r_hata2.registers[0] << 16) | r_hata2.registers[1]
-        except: pass
+            r_volt = client.read_holding_registers(config['volt_addr'], 1, slave=slave_id)
+            val_volt = 0 if r_volt.isError() else r_volt.registers[0] * config['volt_scale']
 
-        return {
-            "slave_id": slave_id,
-            "guc": val_guc,
-            "voltaj": val_volt,
-            "akim": val_akim,
-            "sicaklik": val_isi,
-            "hata_kodu": hata_kodu_189,    
-            "hata_kodu_193": hata_kodu_193, 
-            "timestamp": datetime.now()
-        }, None
+            r_akim = client.read_holding_registers(config['akim_addr'], 1, slave=slave_id)
+            val_akim = 0 if r_akim.isError() else r_akim.registers[0] * config['akim_scale']
 
-    except Exception as e:
-        return None, str(e)
+            r_isi = client.read_holding_registers(config['isi_addr'], 1, slave=slave_id)
+            val_isi = 0 if r_isi.isError() else r_isi.registers[0] * config['isi_scale']
+
+            # 2. Hata Kodları
+            hata_kodu_189 = 0
+            try:
+                r_hata = client.read_holding_registers(189, 2, slave=slave_id)
+                if not r_hata.isError():
+                    hata_kodu_189 = (r_hata.registers[0] << 16) | r_hata.registers[1]
+            except:
+                pass  # Hata kodları opsiyonel
+
+            hata_kodu_193 = 0
+            try:
+                time.sleep(0.02) 
+                r_hata2 = client.read_holding_registers(193, 2, slave=slave_id)
+                if not r_hata2.isError():
+                    hata_kodu_193 = (r_hata2.registers[0] << 16) | r_hata2.registers[1]
+            except:
+                pass  # Hata kodları opsiyonel
+
+            # Başarılı okuma
+            return {
+                "slave_id": slave_id,
+                "guc": val_guc,
+                "voltaj": val_volt,
+                "akim": val_akim,
+                "sicaklik": val_isi,
+                "hata_kodu": hata_kodu_189,    
+                "hata_kodu_193": hata_kodu_193, 
+                "timestamp": datetime.now()
+            }, None
+
+        except ConnectionError as e:
+            last_error = f"Bağlantı hatası: {str(e)}"
+            if attempt < max_retries - 1:
+                time.sleep(0.5)
+                # Yeniden bağlanmayı dene
+                try:
+                    client.close()
+                    client.connect()
+                except:
+                    pass
+        except Exception as e:
+            last_error = f"Okuma hatası: {str(e)}"
+            if attempt < max_retries - 1:
+                time.sleep(0.3)
+    
+    return None, last_error
+
+# Geriye dönük uyumluluk için
+def read_device(client, slave_id, config):
+    return read_device_with_retry(client, slave_id, config, max_retries=3)
 
 # --- STATE ---
 if 'monitoring' not in st.session_state: 
@@ -127,8 +154,12 @@ with st.sidebar:
     
     st.info("Virgül veya tire ile ayırın (Örn: 1, 2, 5-8)")
     id_input = st.text_input("İnverter ID Listesi", value=mevcut_ayarlar.get('slave_ids', '1,2,3'))
-    target_ids = parse_id_list(id_input)
-    st.write(f"📡 İzlenecek ID'ler: {target_ids}")
+    target_ids, id_errors = utils.parse_id_list(id_input)
+    
+    if id_errors:
+        st.warning(f"⚠️ Bazı ID'ler parse edilemedi: {', '.join(id_errors)}")
+    
+    st.write(f"📡 İzlenecek ID'ler: {utils.format_id_list_display(target_ids)}")
     
     st.divider()
     
@@ -200,14 +231,8 @@ with st.sidebar:
         veritabani.ayar_yaz('isi_addr', c_isi_adr)
         veritabani.ayar_yaz('isi_scale', c_isi_sc)
         
-        st.session_state.ayarlar_kaydedildi = True
+        st.success("✅ Ayarlar kaydedildi! Collector 30 saniye içinde güncellenecek.")
         st.rerun()
-    
-    # Kayıt başarılı mesajı
-    if st.session_state.ayarlar_kaydedildi:
-        st.markdown('<div class="save-success">✅ Ayarlar kaydedildi! Collector 30 saniye içinde güncellenecek.</div>', unsafe_allow_html=True)
-        time.sleep(3)
-        st.session_state.ayarlar_kaydedildi = False
 
     if st.button("▶️ SİSTEMİ BAŞLAT"):
         st.session_state.monitoring = True
@@ -244,16 +269,16 @@ row1_c1, row1_c2 = st.columns(2)
 row2_c1, row2_c2 = st.columns(2)
 
 with row1_c1:
-    st.markdown(f'<div class="chart-title" style="background:#332a00; color:#FFD700;">☀️ ID:{selected_id} - Güç</div>', unsafe_allow_html=True)
+    st.markdown(f"**☀️ ID:{int(selected_id)} - Güç**")
     chart_guc = st.empty()
 with row1_c2:
-    st.markdown(f'<div class="chart-title" style="background:#001e33; color:#29B6F6;">⚡ ID:{selected_id} - Voltaj</div>', unsafe_allow_html=True)
+    st.markdown(f"**⚡ ID:{int(selected_id)} - Voltaj**")
     chart_volt = st.empty()
 with row2_c1:
-    st.markdown(f'<div class="chart-title" style="background:#0a260e; color:#66BB6A;">📈 ID:{selected_id} - Akım</div>', unsafe_allow_html=True)
+    st.markdown(f"**📈 ID:{int(selected_id)} - Akım**")
     chart_akim = st.empty()
 with row2_c2:
-    st.markdown(f'<div class="chart-title" style="background:#2e0a0a; color:#EF5350;">🌡️ ID:{selected_id} - Sıcaklık</div>', unsafe_allow_html=True)
+    st.markdown(f"**🌡️ ID:{int(selected_id)} - Sıcaklık**")
     chart_isi = st.empty()
 
 # --- DURUM ÇUBUĞU ---
@@ -286,17 +311,22 @@ def ui_refresh():
 # --- ANA DÖNGÜ ---
 if st.session_state.monitoring:
     client = get_modbus_client(target_ip, target_port)
-    status_bar.success(f"✅ Sistem Aktif")
+    status_bar.success(f"✅ Sistem Aktif - Otomatik yenileme: 5 saniye")
     
-    while st.session_state.monitoring:
-        for dev_id in target_ids:
-            data, err = read_device(client, dev_id, config)
-            if data:
-                veritabani.veri_ekle(dev_id, data)
-        
-        ui_refresh()
-        time.sleep(2) 
-        st.rerun()
+    # Veri toplama
+    for dev_id in target_ids:
+        data, err = read_device(client, dev_id, config)
+        if data:
+            veritabani.veri_ekle(dev_id, data)
+        elif err:
+            status_bar.warning(f"⚠️ ID {dev_id} okunamadı: {err}")
+    
+    # UI güncelleme
+    ui_refresh()
+    
+    # Otomatik yenileme (sonsuz döngü yerine Streamlit'in native mekanizması)
+    time.sleep(5)
+    st.rerun()
 else:
     ui_refresh()
     status_bar.info("Sistem Beklemede. Grafikleri görmek için BAŞLAT'a basın.")

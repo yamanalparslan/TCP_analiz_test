@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import sys
 import os
+from datetime import datetime
 
 # Üst dizindeki modülleri (veritabani.py) görebilmesi için yol ayarı
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -12,6 +13,18 @@ st.set_page_config(page_title="Aktif Alarmlar", page_icon="⚠️", layout="wide
 
 st.title("⚠️ Aktif Donanım Arızaları")
 st.markdown("Cihazlardan gelen hata kodlarının (Register 189 & 193) detaylı dökümü.")
+
+# Otomatik yenileme ayarı
+col1, col2 = st.columns([3, 1])
+with col1:
+    auto_refresh = st.checkbox("🔄 Otomatik Yenileme (10 saniye)", value=False)
+with col2:
+    if st.button("🔄 Şimdi Yenile"):
+        st.rerun()
+
+# Son güncelleme zamanı
+st.caption(f"Son güncelleme: {datetime.now().strftime('%H:%M:%S')}")
+st.divider()
 
 # --- ALARM HARİTALARI ---
 FAULT_MAP_189 = {
@@ -105,6 +118,7 @@ else:
     if toplam_hata == 0:
         st.success("🎉 Harika! Sistemde şu an hiç aktif arıza yok.")
 
-# Otomatik Yenileme Butonu
-if st.button("🔄 Yenile"):
+# Otomatik yenileme
+if auto_refresh:
+    time.sleep(10)
     st.rerun()
